@@ -1,0 +1,35 @@
+# This workflow will upload a Python Package to PyPI when a release is created
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python#publishing-to-package-registries
+
+name: Continuous Integration of Loan API
+
+on:
+  push:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Access of our repo to workflow. 
+      uses: actions/checkout@v4
+
+    - name: Setup python 3.13
+      uses: actions/setup-python@v3
+      with:
+          python-version: "3.13"
+
+    - name: Install dependencies
+      run: |
+          # NOTE: put your own distribution build steps here.
+          python -m pip install --upgrade pip
+          pip install pytest
+          pip install -r requirements.txt
+
+    - name: Test and run with pytest
+      run: |
+          pytest
