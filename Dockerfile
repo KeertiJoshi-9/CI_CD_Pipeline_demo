@@ -12,5 +12,7 @@ RUN pip install -r requirements.txt
 #to copy and send our code, models, file and all other stuff:
 COPY . .
 
+EXPOSE 8000
+
 #to run the command, we use CMD finally. 
 CMD ["python", "-m", "flask", "--app", "loanapp", "run", "--host=0.0.0.0"]
