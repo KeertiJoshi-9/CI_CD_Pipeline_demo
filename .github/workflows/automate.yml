@@ -11,55 +11,80 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+    job1:
+        runs-on: ubuntu-latest
 
-    steps:
-      - name: Access of our repo to workflow. 
-        uses: actions/checkout@v4
+        steps:
+        - name: Access of our repo to workflow. 
+          uses: actions/checkout@v4
 
-      - name: Setup python 3.13
-        uses: actions/setup-python@v3
-        with:
-          python-version: "3.13"
+        - name: Setup python 3.13
+          uses: actions/setup-python@v3
+          with:
+            python-version: "3.13"
 
-      - name: Install dependencies
-        run: |
-          # NOTE: put your own distribution build steps here.
-          python -m pip install --upgrade pip
-          pip install pytest
-          pip install -r requirements.txt
+        - name: Install dependencies
+          run: |
+            # NOTE: put your own distribution build steps here.
+            python -m pip install --upgrade pip
+            pip install pytest
+            pip install -r requirements.txt
 
-      - name: Cache pip dependencies
-        uses: actions/cache@v2
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        - name: Cache pip dependencies
+          uses: actions/cache@v2
+          with:
+            path: ~/.cache/pip
+            key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
 
-      - name: Test and run with pytest
-        run: |
-          pytest
+        - name: Test and run with pytest
+          run: |
+            pytest
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+    job2:
+        needs: job1
+        runs-on: ubuntu-latest
+        environment: production
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+        steps:
+            - name: giving access to repo
+              uses: actions/checkout@v4
 
-      - name: Build and push Docker image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: flask_loan_app
-          IMAGE_TAG: latest
-        run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@v1
+              with:
+                aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                aws-region: us-east-1
+        
+            - name: Login to Amazon ECR
+              id: login-ecr
+              uses: aws-actions/amazon-ecr-login@v1
+        
+            - name: Build, tag, and push image to Amazon ECR
+              id: build-image
+              env:
+                ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+                ECR_REPOSITORY: loan
+                IMAGE_TAG: ${{ github.sha }}
+                run: |
+                 docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+                 docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+                 echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+        
+            - name: Fill in the new image ID in the Amazon ECS task definition
+              id: task-def
+              uses: aws-actions/amazon-ecs-render-task-definition@v1
+              with:
+                task-definition: task-definition.json
+                container-name: loancontainer
+                image: ${{ steps.build-image.outputs.image }}
+        
+            - name: Deploy Amazon ECS task definition
+              uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+              with:
+                task-definition: ${{ steps.task-def.outputs.task-definition }}
+                service: loanservice
+                cluster: loancluster
+                wait-for-service-stability: true
 
-      - name: Update ECS service
-        run: |
-          aws ecs update-service --cluster loan-app-cluster --service loan-service --force-new-deployment
+ 
